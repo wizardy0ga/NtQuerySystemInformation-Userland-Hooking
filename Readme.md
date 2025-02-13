@@ -29,3 +29,79 @@ The core of this technique is offset manipulation. For each SYSTEM_PROCESS_INFOR
 In this example, the hooking dll has been configured to hide **powershell.exe**. When the DLL is injected into [SystemInformer](https://systeminformer.com), the powershell processes will disappear. This is due to SystemInformers reliance on the NtQuerySystemInformation function, which has been hooked by our dll. The API call is intercepted & powershell is removed. This will work on any userland process monitoring application such as task manager & procexp.
 
 ![Hooking Demo](/Doc/Hook_Demo.gif)
+
+### Detecting the Hook
+
+To detect hooks in a process, we can use [hollows hunter](https://github.com/hasherezade/hollows_hunter). Hollows hunter can detect hooks in a process using the **/hooks** argument. In this example, task manager has been injected with the hook. 
+
+![Hollows Hunter](/Doc/hollows.png)
+
+The additional arguments work as specified:
+| Argument | Description |
+| - | - |
+| /pname | Target process by name |
+| /jlvl 2 | Set the logging level of the json summary to verbose |
+| /minidmp | Dump the processes memory |
+
+When the scan is finished, a dump directory will be created which contains the memory dumps and reporting data. The scan_report.json file has been listed below.
+
+```json
+ {
+  "pid" : 24556,
+  "is_64_bit" : 1,
+  "is_managed" : 0,
+  "main_image_path" : "C:\\Windows\\System32\\Taskmgr.exe",
+  "used_reflection" : 0,
+  "scanner_version" : "0.4.0.0",
+  "scanned" : 
+  {
+   "total" : 104,
+   "skipped" : 0,
+   "modified" : 
+   {
+    "total" : 1,
+    "patched" : 1,
+    "iat_hooked" : 0,
+    "replaced" : 0,
+    "hdr_modified" : 0,
+    "implanted_pe" : 0,
+    "implanted_shc" : 0,
+    "unreachable_file" : 0,
+    "other" : 0
+   },
+   "errors" : 0
+  },
+  "scans" : [
+   {
+    "code_scan" : {
+     "module" : "7ffa65ff0000",
+     "module_size" : "1f8000",
+     "module_file" : "C:\\Windows\\System32\\ntdll.dll",
+     "status" : 1,
+     "scanned_sections" : 2,
+     "patches" : 1,
+     "patches_list" : [
+      {
+       "rva" : "9dba0",
+       "size" : 5,
+       "is_hook" : 1,
+       "func_name" : "NtQuerySystemInformation",
+       "hook_target" : {
+        "module" : "0",
+        "rva" : "7ffa65fe0fd6",
+        "status" : 0
+       }
+      }
+     ]
+    }
+   }
+  ]
+ }
+```
+
+The **scans** key shows the potential hooks that were found in each module. Hollows hunter will show the hooks as **patches** in it's output. This report shows NtQuerySystemInformation has been hooked. If we add the RVA (0x000000000009DBA0) of the function to the base of the ntdll module (0x00007FFA65FF0000), we get the address of the function in memory (0x00007FFA6608DBA0
+). Using a tool such as [WinDbg](http://www.windbg.org/), we can analyze the disassembly of this function at the address.
+
+![Disasm](/Doc/windbg.png)
+
+From this analysis, we can confirm this is a true positive detection for a hook as the standard syscall stub has been overwritten with a direct jump instruction to another location in memory. This location in memory is also listed in the report under the **rva** key in the **hook_target** dictionary.
